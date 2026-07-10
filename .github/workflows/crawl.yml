@@ -18,6 +18,7 @@ jobs:
       shards: ${{ steps.cfg.outputs.shards }}
       limit: ${{ steps.cfg.outputs.limit }}
       workers: ${{ steps.cfg.outputs.workers }}
+      source: ${{ steps.cfg.outputs.source }}
     steps:
       - uses: actions/checkout@v4
       - id: cfg
@@ -40,7 +41,7 @@ jobs:
       - name: decrypt domain list
         env:
           ENC_KEY: ${{ secrets.ENC_KEY }}
-        run: python crypt.py dec domains.csv.enc domains.csv
+        run: python crypt.py dec ${{ needs.setup.outputs.source }}.enc infile.csv
       - name: show egress IP
         run: echo "shard ${{ matrix.shard }} egress IP = $(curl -s --max-time 10 https://api.ipify.org)"
       - name: crawl shard
@@ -51,7 +52,7 @@ jobs:
             --shard ${{ matrix.shard }} \
             --of ${{ needs.setup.outputs.shards }} \
             --limit ${{ needs.setup.outputs.limit }} \
-            --infile domains.csv \
+            --infile infile.csv \
             --out out/shard-${{ matrix.shard }}.csv
       - name: encrypt shard output
         env:

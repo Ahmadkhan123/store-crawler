@@ -7,5 +7,7 @@ with open(os.environ["GITHUB_OUTPUT"], "a") as f:
     f.write("shards=%d\n" % s)
     f.write("limit=%d\n" % int(c.get("limit", 0)))
     f.write("workers=%d\n" % int(c.get("workers", 10)))
+    f.write("source=%s\n" % c.get("source", "domains.csv"))
     f.write("matrix=%s\n" % json.dumps(list(range(s))))
-print("shards=%d limit=%s workers=%s" % (s, c.get("limit"), c.get("workers")))
+print("shards=%d limit=%s workers=%s source=%s"
+      % (s, c.get("limit"), c.get("workers"), c.get("source", "domains.csv")))
