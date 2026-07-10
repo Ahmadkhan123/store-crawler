@@ -1,0 +1,6 @@
+domains.csv
+out/
+shards/
+results/
+__pycache__/
+*.pyc

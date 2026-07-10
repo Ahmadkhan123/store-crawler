@@ -1,0 +1,102 @@
+name: crawl-emails
+# Public code, encrypted data. Runners decrypt domains, crawl, re-encrypt output.
+
+on:
+  push:
+    paths:
+      - run.json
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.cfg.outputs.matrix }}
+      shards: ${{ steps.cfg.outputs.shards }}
+      limit: ${{ steps.cfg.outputs.limit }}
+      workers: ${{ steps.cfg.outputs.workers }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: cfg
+        run: python gen_matrix.py
+
+  crawl:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 20
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet requests pynacl
+      - name: decrypt domain list
+        env:
+          ENC_KEY: ${{ secrets.ENC_KEY }}
+        run: python crypt.py dec domains.csv.enc domains.csv
+      - name: show egress IP
+        run: echo "shard ${{ matrix.shard }} egress IP = $(curl -s --max-time 10 https://api.ipify.org)"
+      - name: crawl shard
+        env:
+          WORKERS: ${{ needs.setup.outputs.workers }}
+        run: |
+          python crawler.py \
+            --shard ${{ matrix.shard }} \
+            --of ${{ needs.setup.outputs.shards }} \
+            --limit ${{ needs.setup.outputs.limit }} \
+            --infile domains.csv \
+            --out out/shard-${{ matrix.shard }}.csv
+      - name: encrypt shard output
+        env:
+          ENC_KEY: ${{ secrets.ENC_KEY }}
+        run: python crypt.py enc out/shard-${{ matrix.shard }}.csv out/shard-${{ matrix.shard }}.csv.enc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.shard }}
+          path: out/shard-${{ matrix.shard }}.csv.enc
+          retention-days: 3
+
+  merge:
+    needs: crawl
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet pynacl
+      - uses: actions/download-artifact@v4
+        with:
+          path: enc
+          pattern: shard-*
+          merge-multiple: true
+      - name: decrypt shards
+        env:
+          ENC_KEY: ${{ secrets.ENC_KEY }}
+        run: |
+          mkdir -p shards
+          for f in enc/*.enc; do
+            python crypt.py dec "$f" "shards/$(basename ${f%.enc})"
+          done
+      - name: merge
+        run: python merge.py shards results
+      - name: encrypt results
+        env:
+          ENC_KEY: ${{ secrets.ENC_KEY }}
+        run: |
+          for f in results/*; do
+            python crypt.py enc "$f" "$f.enc" && rm "$f"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ALL-EMAILS-ENC
+          path: results/
+          retention-days: 30
