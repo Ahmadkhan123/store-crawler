@@ -1,1 +1,1 @@
-{"shards": 4, "limit": 250, "workers": 10}
+{"shards": 4, "limit": 250, "workers": 10, "note": "pilot-1"}
