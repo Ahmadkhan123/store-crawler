@@ -1,1 +1,1 @@
-{"shards": 20, "limit": 0, "workers": 10, "source": "retry_wave2.csv", "note": "retry-wave-2"}
+{"shards": 256, "limit": 0, "workers": 10, "source": "crux_new_domains.csv", "note": "crux-full-run"}
