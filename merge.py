@@ -1,61 +1,49 @@
 #!/usr/bin/env python3
-"""Merge all shard CSVs into final deliverables + a summary.
+"""Merge v2 shard CSVs (per-email rows) into combined outputs + summary.
 
-Outputs (in the given results dir):
-  all_results.csv     every domain + status (full audit trail)
-  emails_only.csv     just the stores where we found an email (outreach list)
-  retry_needed.csv    domains that were throttled/dead -> feed a second wave
-  summary.txt         headline stats
+Outputs (in results dir):
+  all_emails.csv    every (domain,email) row with label + static hygiene
+  summary.txt       label + hygiene counts
+Shared-footer collapse, dedup vs registries, and MX run in the local dedup step.
 """
 import csv, sys, os, glob, collections
+
+COLS = ["domain", "email", "email_label", "confidence", "matched_name",
+        "name_source", "is_domain_matched", "is_free", "source_url",
+        "static_decision", "drop_reason", "founder_names", "status"]
+
 
 def main():
     shards_dir, out_dir = sys.argv[1], sys.argv[2]
     os.makedirs(out_dir, exist_ok=True)
-    rows, seen = [], set()
+    seen, rows = set(), []
     for fn in sorted(glob.glob(os.path.join(shards_dir, "*.csv"))):
+        if fn.endswith("_status.csv"):
+            continue
         with open(fn) as f:
             for r in csv.DictReader(f):
-                d = r.get("domain", "")
-                if d and d not in seen:
-                    seen.add(d); rows.append(r)
-    fields = ["domain", "email", "source", "source_url", "email_type",
-              "all_emails", "instagram", "facebook", "status"]
+                k = (r.get("domain", ""), r.get("email", ""))
+                if k[1] and k not in seen:
+                    seen.add(k); rows.append(r)
+    with open(os.path.join(out_dir, "all_emails.csv"), "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=COLS, extrasaction="ignore")
+        w.writeheader(); w.writerows(rows)
 
-    with open(os.path.join(out_dir, "all_results.csv"), "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields); w.writeheader()
-        w.writerows(rows)
-
-    emails = [r for r in rows if r.get("email")]
-    with open(os.path.join(out_dir, "emails_only.csv"), "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields); w.writeheader()
-        w.writerows(emails)
-
-    retry = [r for r in rows if r.get("status") in ("throttled", "dead", "error")]
-    with open(os.path.join(out_dir, "retry_needed.csv"), "w", newline="") as f:
-        w = csv.writer(f); w.writerow(["domain"])
-        for r in retry:
-            w.writerow([r["domain"]])
-
-    st = collections.Counter(r.get("status", "") for r in rows)
-    ty = collections.Counter(r.get("email_type", "") for r in emails)
-    total = len(rows)
+    lab = collections.Counter(r.get("email_label", "") for r in rows)
+    dec = collections.Counter(r.get("static_decision", "") for r in rows)
+    pers = sum(v for k, v in lab.items() if k.startswith("personal"))
     lines = [
-        f"Total domains processed : {total}",
-        f"Emails found            : {len(emails)} ({len(emails)/max(total,1)*100:.1f}%)",
-        f"  domain-matched        : {ty.get('domain-matched',0)}",
-        f"  role/other            : {ty.get('role/other',0)}",
-        f"  free-mail             : {ty.get('free-mail',0)}",
-        f"No email (real)         : {st.get('no_email',0)}",
-        f"Throttled (retry)       : {st.get('throttled',0)}",
-        f"Dead                    : {st.get('dead',0)}",
-        f"With Instagram link     : {sum(1 for r in rows if r.get('instagram'))}",
-        f"With Facebook link      : {sum(1 for r in rows if r.get('facebook'))}",
+        f"Total email rows        : {len(rows)}",
+        f"Unique (domain,email)   : {len(seen)}",
+        f"PERSONAL (conf+likely)  : {pers}",
+        *[f"  {k:22}: {v}" for k, v in lab.most_common()],
+        f"static keep / drop      : {dec.get('keep', 0)} / {dec.get('drop', 0)}",
     ]
     summ = "\n".join(lines)
     with open(os.path.join(out_dir, "summary.txt"), "w") as f:
         f.write(summ + "\n")
     print(summ)
+
 
 if __name__ == "__main__":
     main()

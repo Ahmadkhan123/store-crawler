@@ -4,3 +4,5 @@ shards/
 results/
 __pycache__/
 *.pyc
+mx_cache.csv
+crux_new_domains.csv
