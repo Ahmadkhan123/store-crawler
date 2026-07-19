@@ -1,5 +1,6 @@
 name: crawl-emails
 # Public code, encrypted data. Runners decrypt domains, crawl, re-encrypt output.
+# Hardened: SHA-pinned actions, repo guard, no persisted creds, only *.enc uploaded.
 
 on:
   push:
@@ -13,6 +14,9 @@ permissions:
 jobs:
   setup:
     runs-on: ubuntu-latest
+    if: github.repository == 'Ahmadkhan123/store-crawler'
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.cfg.outputs.matrix }}
       shards: ${{ steps.cfg.outputs.shards }}
@@ -20,61 +24,73 @@ jobs:
       workers: ${{ steps.cfg.outputs.workers }}
       source: ${{ steps.cfg.outputs.source }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - id: cfg
         run: python gen_matrix.py
 
   crawl:
     needs: setup
     runs-on: ubuntu-latest
+    if: github.repository == 'Ahmadkhan123/store-crawler'
+    permissions:
+      contents: read
     strategy:
       max-parallel: 20
       fail-fast: false
       matrix:
         shard: ${{ fromJson(needs.setup.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - run: pip install --quiet requests pynacl
       - name: decrypt domain list
         env:
           ENC_KEY: ${{ secrets.ENC_KEY }}
-        run: python crypt.py dec ${{ needs.setup.outputs.source }}.enc infile.csv
-      - name: show egress IP
-        run: echo "shard ${{ matrix.shard }} egress IP = $(curl -s --max-time 10 https://api.ipify.org)"
+          SOURCE: ${{ needs.setup.outputs.source }}
+        run: python crypt.py dec "${SOURCE}.enc" infile.csv
       - name: crawl shard
         env:
           WORKERS: ${{ needs.setup.outputs.workers }}
-        run: |
-          python crawler.py \
-            --shard ${{ matrix.shard }} \
-            --of ${{ needs.setup.outputs.shards }} \
-            --limit ${{ needs.setup.outputs.limit }} \
-            --infile infile.csv \
-            --out out/shard-${{ matrix.shard }}.csv
-      - name: encrypt shard output
+          SHARD: ${{ matrix.shard }}
+          OF: ${{ needs.setup.outputs.shards }}
+          LIMIT: ${{ needs.setup.outputs.limit }}
+        run: python crawler.py --shard "$SHARD" --of "$OF" --limit "$LIMIT" --infile infile.csv --out "out/shard-${SHARD}.csv"
+      - name: encrypt shard output (fail hard if encrypt fails)
         env:
           ENC_KEY: ${{ secrets.ENC_KEY }}
-        run: python crypt.py enc out/shard-${{ matrix.shard }}.csv out/shard-${{ matrix.shard }}.csv.enc
-      - uses: actions/upload-artifact@v4
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          python crypt.py enc "out/shard-${SHARD}.csv" "out/shard-${SHARD}.csv.enc"
+          rm -f "out/shard-${SHARD}.csv"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: shard-${{ matrix.shard }}
           path: out/shard-${{ matrix.shard }}.csv.enc
           retention-days: 3
+          if-no-files-found: error
 
   merge:
     needs: crawl
-    if: always()
+    if: ${{ always() && github.repository == 'Ahmadkhan123/store-crawler' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - run: pip install --quiet pynacl
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: enc
           pattern: shard-*
@@ -83,21 +99,27 @@ jobs:
         env:
           ENC_KEY: ${{ secrets.ENC_KEY }}
         run: |
+          set -euo pipefail
           mkdir -p shards
           for f in enc/*.enc; do
-            python crypt.py dec "$f" "shards/$(basename ${f%.enc})"
+            python crypt.py dec "$f" "shards/$(basename "${f%.enc}")"
           done
       - name: merge
         run: python merge.py shards results
-      - name: encrypt results
+      - name: encrypt results (fail hard; plaintext never uploaded)
         env:
           ENC_KEY: ${{ secrets.ENC_KEY }}
         run: |
+          set -euo pipefail
           for f in results/*; do
-            python crypt.py enc "$f" "$f.enc" && rm "$f"
+            [ -f "$f" ] || continue
+            case "$f" in *.enc) continue;; esac
+            python crypt.py enc "$f" "$f.enc"
+            rm -f "$f"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ALL-EMAILS-ENC
-          path: results/
-          retention-days: 30
+          path: results/*.enc          # ONLY encrypted files leave the runner
+          retention-days: 7
+          if-no-files-found: error
