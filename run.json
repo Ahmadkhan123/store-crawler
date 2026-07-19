@@ -1,1 +1,1 @@
-{"shards": 256, "limit": 0, "workers": 10, "source": "2m_chunk1.csv", "note": "2m-chunk1-full-400k"}
+{"shards": 256, "limit": 0, "workers": 10, "source": "2m_chunk3.csv", "note": "chunk3-acct1"}
