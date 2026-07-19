@@ -117,8 +117,13 @@ def _is_person_name(name, brand_tokens, strict=True):
 def harvest_names(html, brand_tokens=frozenset()):
     """Return list of (name, weight, source), highest weight first."""
     out = {}
+    _FILLER = {"im", "i", "hi", "hey", "my", "we", "this", "is", "am", "the",
+               "meet", "hello", "welcome", "so", "and", "our"}
     def add(name, w, src, strict):
-        n = " ".join((name or "").split()[:3]).strip(" ,.-")
+        toks = (name or "").split()
+        while toks and re.sub(r"['’]", "", defold(toks[0])) in _FILLER:
+            toks = toks[1:]
+        n = " ".join(toks[:3]).strip(" ,.-")
         if n and _is_person_name(n, brand_tokens, strict) and (n not in out or out[n][0] < w):
             out[n] = (w, src)
     # JSON-LD founder/author/owner (trusted; any script)
