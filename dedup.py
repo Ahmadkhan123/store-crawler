@@ -75,30 +75,17 @@ def main():
           f"already_paid:{ex_paid} intra_dup:{ex_dup}", flush=True)
     print(f"survivors before MX: {len(kept):,}", flush=True)
 
-    # 2) MX health on UNIQUE surviving email-domains (cached, one query each)
-    mx_path = base + "/crawler-public/mx_cache.csv"
-    cache = HY.load_mx_cache(mx_path)
-    doms = sorted({r["email"].split("@")[1] for r in kept if "@" in r["email"]})
-    todo = [d for d in doms if d not in cache]
-    print(f"unique domains {len(doms):,} | MX to resolve {len(todo):,}", flush=True)
-    with ThreadPoolExecutor(max_workers=40) as ex:
-        for i, _ in enumerate(ex.map(lambda d: HY.mx_check(d, cache), todo), 1):
-            if i % 2000 == 0:
-                print(f"  MX {i}/{len(todo)}", flush=True)
-    HY.save_mx_cache(mx_path, cache)
-
-    final, mx_dead, mx_unknown = [], 0, 0
-    for r in kept:
-        d = r["email"].split("@")[1]
-        v, reason, flag = cache.get(d, (None, "", ""))
-        if v is False:
-            mx_dead += 1; continue
-        if v is None:
-            mx_unknown += 1
-        r["mx_valid"] = "" if v is None else str(v)
-        r["mx_flag"] = flag
-        final.append(r)
-    print(f"MX-dropped dead domains: {mx_dead} | mx_unknown(kept): {mx_unknown}", flush=True)
+    # 2) EXCLUDE other_domain (third-party: font vendors/agencies/suppliers on the
+    #    page but NOT the store's own contact) — never send to ListClean.
+    final = [r for r in kept if r["email_label"].startswith(("personal", "company"))]
+    other = [r for r in kept if not r["email_label"].startswith(("personal", "company"))]
+    for r in final:
+        r["mx_valid"] = ""; r["mx_flag"] = ""
+    print(f"excluded other_domain (third-party): {len(other)}", flush=True)
+    # NOTE: local MX at this scale is a no-op (single-IP resolver rate-limits ->
+    # all timeouts). ListClean does the deliverability/MX check on upload, so we
+    # rely on that. Fast hygiene (syntax/disposable/shared-footer/dedup/already-paid)
+    # already removed the credit-wasters that don't need a network call.
 
     # 3) write final ready lists (health-checked, deduped, not-already-paid)
     cols = ["domain", "email", "email_label", "confidence", "matched_name",
@@ -113,6 +100,7 @@ def main():
     w("ready_all.csv", final)
     w("ready_personal.csv", personal)
     w("ready_company.csv", company)
+    w("other_domain.csv", other)   # third-party, reference only, NOT sent to ListClean
     # ListClean upload = just the unique emails
     with open(os.path.join(outdir, "listclean_upload.csv"), "w", newline="") as f:
         wr = csv.writer(f); wr.writerow(["email"])

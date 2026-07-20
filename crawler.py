@@ -142,6 +142,12 @@ def main():
                     w.writerow(r)
                     if r["email_label"].startswith("personal"):
                         npers += 1
+                if not rows:      # coverage row: no-email/throttled/dead domain
+                    w.writerow({"domain": dom, "email": "", "status": st,
+                                "email_label": "", "confidence": "", "matched_name": "",
+                                "name_source": "", "is_domain_matched": "", "is_free": "",
+                                "source_url": "", "static_decision": "", "drop_reason": "",
+                                "founder_names": ""})
                 nem += len(rows)
                 if st == "throttled":
                     thr += 1

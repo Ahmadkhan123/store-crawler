@@ -89,8 +89,8 @@ def mx_check(domain, cache):
         cache[domain] = res
         return res
     r = dns.resolver.Resolver()
-    r.nameservers = ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
-    r.timeout, r.lifetime = 5, 8
+    r.nameservers = ["1.1.1.1", "8.8.8.8", "9.9.9.9", "8.8.4.4", "1.0.0.1"]
+    r.timeout, r.lifetime = 2, 3
     try:
         ans = r.resolve(domain, "MX")
         res = (True, "mx", "") if len(ans) else (None, "empty_mx", "mx_unknown")

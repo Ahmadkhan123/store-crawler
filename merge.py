@@ -29,15 +29,18 @@ def main():
         w = csv.DictWriter(f, fieldnames=COLS, extrasaction="ignore")
         w.writeheader(); w.writerows(rows)
 
-    lab = collections.Counter(r.get("email_label", "") for r in rows)
-    dec = collections.Counter(r.get("static_decision", "") for r in rows)
+    emails = [r for r in rows if r.get("email")]
+    cover = [r for r in rows if not r.get("email")]     # coverage rows (no email)
+    lab = collections.Counter(r.get("email_label", "") for r in emails)
+    cst = collections.Counter(r.get("status", "") for r in cover)
     pers = sum(v for k, v in lab.items() if k.startswith("personal"))
     lines = [
-        f"Total email rows        : {len(rows)}",
-        f"Unique (domain,email)   : {len(seen)}",
+        f"Email rows              : {len(emails)}",
         f"PERSONAL (conf+likely)  : {pers}",
-        *[f"  {k:22}: {v}" for k, v in lab.most_common()],
-        f"static keep / drop      : {dec.get('keep', 0)} / {dec.get('drop', 0)}",
+        *[f"  {k:22}: {v}" for k, v in lab.most_common() if k],
+        f"Coverage rows (no email): {len(cover)}  -> " +
+        " ".join(f"{k}:{v}" for k, v in cst.most_common()),
+        f"RETRY set (throttled)   : {cst.get('throttled', 0)}",
     ]
     summ = "\n".join(lines)
     with open(os.path.join(out_dir, "summary.txt"), "w") as f:
