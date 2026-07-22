@@ -1,1 +1,1 @@
-{"shards": 256, "limit": 0, "workers": 10, "source": "2m_chunk2.csv", "note": "chunk2-final"}
+{"shards": 40, "limit": 0, "workers": 10, "source": "2m_retry.csv", "note": "retry-sweep"}
